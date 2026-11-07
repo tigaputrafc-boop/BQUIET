@@ -1,0 +1,8 @@
+{
+  "name": "mono-audio-studio-cloudflare",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node scripts/build.mjs" },
+  "dependencies": { "@ffmpeg/ffmpeg": "0.12.15" }
+}

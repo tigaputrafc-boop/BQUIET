@@ -1,82 +1,51 @@
-# MONO Audio Studio
+# MONO Audio Studio — Cloudflare Pages
 
-Website responsif (hitam-putih), mendukung mode lokal dan hosting publik, untuk konversi audio, upload Roblox Open Cloud, dan status moderasi. Tanpa dependencies NPM, frontend framework, atau emoji/icon library. Semua ikon SVG dibuat manual.
+Website minimalis hitam-putih untuk **konversi audio lokal di browser**, **upload ke Roblox Open Cloud**, dan **tracking status Roblox**. Frontend tidak menggunakan emoji; ikon SVG dirancang khusus. Tidak perlu Node.js atau FFmpeg pada server Cloudflare.
 
-## Persiapan
+## Deploy (GitHub ke Cloudflare Pages)
 
-- **Node.js 20 atau lebih baru** (disarankan Node 22+)
-- **FFmpeg** dan **FFprobe** sudah ada di PATH (`ffmpeg -version`, `ffprobe -version`)
-- **yt-dlp** di PATH (`yt-dlp --version`) untuk memproses URL YouTube/SoundCloud. Tidak dibutuhkan jika hanya mengunggah file lokal.
-- **Roblox Open Cloud API key** untuk Direct Upload. Buat di Creator Hub dengan izin **asset:read** dan **asset:write** serta hak akses creator. Audio harus legal Anda gunakan. Tidak perlu Roblox cookie / password.
+1. Masuk ke https://dash.cloudflare.com/ → **Workers & Pages** → **Create application** → **Pages** → **Connect to Git**.
+2. Sambungkan GitHub dan pilih repositori `tigaputrafc-boop/BQUIET` (branch `main`).
+3. **Framework preset:** None.
+4. **Build command:** `npm run build`.
+5. **Build output directory:** `public`.
+6. **Root directory:** `/` atau kosong (repo root).
+7. Pilih **Save and Deploy**. Cloudflare memberikan URL `https://<nama-proyek>.pages.dev` setelah selesai.
 
-### Instalasi cepat (Windows)
+Untuk upload Roblox, buka Pages project → **Settings → Variables and Secrets** (nama menu bisa berubah), lalu buat variabel berikut pada **Production**:
 
-1. Instal Node.js LTS dari https://nodejs.org/.
-2. Instal FFmpeg agar perintah `ffmpeg` dan `ffprobe` dikenali terminal. Salah satu cara lewat `winget install Gyan.FFmpeg` dan buka ulang terminal.
-3. Opsional untuk link: instal yt-dlp dari https://github.com/yt-dlp/yt-dlp (misalnya `winget install yt-dlp.yt-dlp`), lalu buka ulang terminal.
-4. Salin `.env.example` menjadi `.env`, isi `ROBLOX_API_KEY`, `ROBLOX_CREATOR_ID`, dan `ROBLOX_CREATOR_TYPE` (`user` atau `group`). Pastikan key punya izin akses owner yang benar.
-5. Buka terminal di folder ini:
+| Nama variabel | Nilai | Secret? |
+|---|---|---|
+| `APP_PASSWORD` | Password akses pribadi, minimal 12 karakter, yang **kamu pilih sendiri** | Ya |
+| `ROBLOX_API_KEY` | Roblox Open Cloud API key dengan izin `asset:read`, `asset:write` | Ya |
+| `ROBLOX_CREATOR_ID` | ID User atau Group Roblox | Biasanya tidak |
+| `ROBLOX_CREATOR_TYPE` | `user` (default) atau `group` | Tidak |
 
-   ```sh
-   node server.mjs
-   ```
+Setelah mengisi variabel, **redeploy** project. Jangan pernah memasukkan API key ke GitHub, JavaScript browser, atau obrolan. Gunakan Secret setting Cloudflare.
 
-6. Kunjungi **http://127.0.0.1:3000** di browser.
+Jika variabel belum diisi, converter lokal masih bisa digunakan secara publik tetapi upload Roblox nonaktif. Setelah APP_PASSWORD diisi, website menggunakan login pribadi dan cookie ditandatangani untuk melindungi area utama dan API.
 
-Anda boleh menguji **Convert** tanpa API key Roblox. **Upload** akan nonaktif sampai API key dikonfigurasi. Untuk link YouTube/SoundCloud diperlukan yt-dlp; konten tertentu bisa gagal karena pembatasan platform.
+## Fitur dan batasan
 
-### Alur penggunaan
+- **Convert:** file lokal MP3/OGG/WAV/FLAC/M4A (maks. **25 MB**); output MP3/OGG/WAV, speed 0,75–1,5×, gain -6 hingga +12 dB. Semua konversi menggunakan `@ffmpeg/ffmpeg` di **browser pengguna**. Unduhan WebAssembly pertama kali sekitar 30 MB; konversi di ponsel bisa lambat dan memakai memori besar.
+- **Tidak ada konversi URL YouTube/SoundCloud** pada versi Cloudflare. URL membutuhkan layanan downloader di luar Cloudflare Pages Functions.
+- **Upload:** file MP3/OGG/WAV yang lebih kecil dari 20 MB, dengan izin pemilik dan durasi ideal <= 7 menit; request diteruskan melalui Pages Function ke Roblox. Audio belum tentu langsung approved: moderasi Roblox punya prosesnya sendiri.
+- **Status:** query Open Cloud Operation dan Asset API. `pending` ketika belum ada keputusan moderasi; `approved`/`rejected` hanya saat datanya memang tersedia.
+- **Activity:** tersimpan di localStorage browser, hasil audio tersimpan di IndexedDB. Riwayat tidak dibagikan antar perangkat atau akun, dan dapat hilang jika data browser dibersihkan.
+- Paket gratis Cloudflare Pages/Workers punya limit permintaan; API Roblox juga bisa mempunyai batas pengguna/asset.
 
-1. Isi URL **atau** pilih file lokal, atur speed 0.75–1.50x, gain −6–+12 dB, dan format MP3/OGG/WAV. Centang hak penggunaan audio, lalu **Convert Audio**.
-2. Ketika status `Ready`, tekan Download atau Use for upload. Hasil tersimpan lokal selama maksimal 24 jam.
-3. Di panel Upload, masukkan nama/deskripsi, pilih hasil konversi atau file sendiri, konfirmasi hak audio, lalu **Upload to Roblox**.
-4. Status riil Open Cloud tampil di Activity: `Uploading`, `Pending`, `Approved`, atau `Rejected`. Proses dan moderasi bisa berlangsung berbeda waktu. Setelah mendapatkan `Asset ID`, gunakan `rbxassetid://ID` di Roblox Studio. Situs ini melakukan polling status ketika halaman dibuka (setiap 12 detik) dan ada tombol cek manual.
+## Struktur
 
-### Batasan dan keamanan
+- `public/` — UI dan JavaScript browser.
+- `functions/_middleware.js` — perlindungan halaman dan API.
+- `functions/api/` — login, config, upload, status.
+- `scripts/build.mjs` — menyalin berkas wrapper FFmpeg dari `node_modules` ke `public/vendor/`.
+- `package.json` — hanya dependensi build; **tidak ada backend Node di Cloudflare**.
 
-- Mode lokal hanya diakses pada `127.0.0.1`. Mode publik (HOST=0.0.0.0) memerlukan `APP_PASSWORD` dan menggunakan sesi login serta pembatasan percobaan masuk. Didesain untuk satu pemilik pribadi, bukan layanan multi-akun.
-- API key hanya dibaca oleh backend dari `.env`, tidak pernah dimasukkan ke halaman HTML / JavaScript browser.
-- Hanya upload audio **<20 MB**, durasi **≤7 menit**, sample rate **≤48kHz**, tipe MP3/OGG/WAV/FLAC sesuai syarat Open Cloud Roblox. Limit akun Roblox dan moderasi tetap berlaku.
-- Tidak ada cara memaksa approval moderasi. Status `Approved` hanya ditampilkan jika Roblox mengembalikan status disetujui. Ketika Roblox belum memberi keputusan, tetap `Pending`.
-- Konversi membutuhkan sumber yang Anda miliki hak atau izinnya. Pastikan download diizinkan oleh ketentuan platform dan hak cipta.
-- Hasil konversi ada di `storage/`; riwayat lokal di `data/jobs.json`. Jangan membagikan folder `.env`, `storage`, atau `data` ke publik. Proses yang sedang berjalan saat server dimatikan perlu diulang; untuk upload yang terputus periksa Creator Dashboard sebelum mengulang agar tidak duplikat.
-- Semua input URL dibatasi ke HTTPS YouTube / SoundCloud, tanpa menjalankan shell dari input, dan proses dibatasi ukuran/durasi.
+## Tes lokal
 
-### Struktur
+Untuk build wrapper FFmpeg: `npm install && npm run build`. Jalankan Cloudflare Pages Functions menggunakan Wrangler (`npx wrangler pages dev public`) agar endpoint `/api/*` berfungsi. HTTP server statis biasa hanya menampilkan UI tanpa Pages Functions.
 
-```text
-MonoAudioStudio/
-  server.mjs            # HTTP API, FFmpeg/yt-dlp, Roblox Open Cloud, polling
-  .env.example          # template kredensial
-  public/
-    index.html          # dashboard + ikon SVG
-    styles.css          # UI responsive monochrome + gradients
-    app.js              # interaksi frontend
-    favicon.svg         # ikon SVG kustom
-  data/                 # job history (dibuat otomatis)
-  storage/              # audio hasil konversi (dibuat otomatis)
-```
+## Keamanan
 
-Dokumentasi resmi:
-- https://create.roblox.com/docs/cloud/guides/usage-assets
-- https://create.roblox.com/docs/cloud/reference/features/assets
-- https://create.roblox.com/docs/audio/assets
-
-## Deploy online: Render
-
-Aplikasi ini sudah mendukung hosting publik, menggunakan login password agar API key Roblox tidak tersedia bagi pengunjung lain.
-
-1. Hubungkan akun **Render** ke ChatGPT, atau unggah folder proyek sebagai repository GitHub lalu buka [Render Dashboard](https://dashboard.render.com/) > **New** > **Blueprint** untuk memilih repository dengan `render.yaml`.
-2. Isi `APP_PASSWORD` dengan password yang **kuat dan unik (minimal 12 karakter)** dalam konfigurasi rahasia Render; jangan taruh password di source code.
-3. Render membangun aplikasi menggunakan `Dockerfile` (Node.js, FFmpeg/FFprobe, yt-dlp). Tunggu status deploy **Live**; link publik tersedia sebagai `https://<nama-layanan>.onrender.com` (link ditentukan Render, bukan diciptakan manual).
-4. Login dengan `APP_PASSWORD`. Fitur Convert dapat berjalan meskipun belum punya API key Roblox.
-5. Untuk upload Roblox, tambahkan **Secret environment variables** di Render: `ROBLOX_API_KEY`, `ROBLOX_CREATOR_ID`, `ROBLOX_CREATOR_TYPE=user` (atau `group`) lalu redeploy. Jangan masukkan API key di browser atau repository.
-
-**Penting:** Render Free dapat tidur saat tidak dipakai dan akan menghapus riwayat/file sementara saat restart, redeploy, atau spin down. Untuk penyimpanan permanen gunakan paket berbayar dengan persistent disk dan atur `DATA_DIR` ke path disk yang dipasang. Batasan CPU/RAM gratis dapat mengganggu konversi audio. Jangan bagikan password publik jika hanya Anda yang berhak memakai Roblox Creator account. Akun Roblox mungkin membatasi API key berdasarkan IP; periksa konfigurasi Open Cloud bila upload mengembalikan 403.
-
-## Keamanan saat hosting publik
-
-- Password tidak disimpan di frontend. Setelah login, server memberikan cookie sesi acak `HttpOnly`, `Secure`, dan `SameSite=Strict`, berlaku 24 jam, serta membatasi percobaan login. Sesi akan hilang saat server restart.
-- Jangan mengatur `HOST=0.0.0.0` tanpa `APP_PASSWORD` kuat. Server akan menolak startup tanpa password dengan minimal 12 karakter.
-- Semua API upload, konversi, status, dan download membutuhkan sesi login pada mode publik. Endpoint `/healthz` tetap terbuka hanya untuk status infrastruktur.
-- Host Render HTTPS digunakan untuk melindungi cookie dan password selama transmisi. Jangan memasang aplikasi ini pada HTTP publik tanpa HTTPS.
+Jangan set APP_PASSWORD/ROBLOX_API_KEY sebagai plaintext di repository. Gunakan Cloudflare secrets. Konfigurasi password menciptakan private workspace sederhana; untuk penggunaan publik multiuser perlu autentikasi yang lebih kuat, rate limiting, dan pengaturan kuota per pengguna. Cloudflare Access juga dapat digunakan sebagai lapisan tambahan.

@@ -1,5 +1,5 @@
-.env
 node_modules/
-data/*.json
-storage/*
-!.gitkeep
+public/vendor/
+.env
+.dev.vars
+.DS_Store

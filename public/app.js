@@ -2,198 +2,51 @@
 const $ = id => document.getElementById(id);
 const svg = id => `<svg aria-hidden="true"><use href="#i-${id}"></use></svg>`;
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = { jobs: [], config: null, convertingId:null, uploadingId:null, busy:false };
 const labels = {processing:'Converting',ready:'Ready',uploading:'Uploading',pending:'Pending',approved:'Approved',rejected:'Rejected',error:'Failed',expired:'Expired'};
-const allowedForUpload = new Set(['mp3','ogg','wav']);
-const dateFmt = value => { try { return new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)); } catch { return '-'; } };
-const numFmt = n => Number.isFinite(n) ? `${(n/(1024*1024)).toFixed(1)} MB` : '—';
-function toast(msg) {
-  const box=document.createElement('div');box.className='toast';box.textContent=msg;
-  $('toasts').appendChild(box);
-  setTimeout(()=>box.remove(),5600);
+const state = {jobs:[], config:null, convertingId:null, uploadingId:null, ffmpeg:null, ffmpegPromise:null};
+const cachedBlobs = new Map();
+const KEY = 'mono-jobs-cloudflare-v1';
+const allowedUpload = new Set(['mp3','ogg','wav']);
+const fmtDate = value => {try{return new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value));}catch{return '-';}};
+const fmtSize = n => Number.isFinite(n)?`${(n/1048576).toFixed(1)} MB`:'—';
+function toast(message) {const el=document.createElement('div');el.className='toast';el.textContent=message;$('toasts').appendChild(el);setTimeout(()=>el.remove(),6000);}
+function saveJobs(){try{localStorage.setItem(KEY,JSON.stringify(state.jobs.slice(0,100)));}catch{toast('Penyimpanan riwayat browser penuh.');}}
+function hydrateJobs(){try{state.jobs=JSON.parse(localStorage.getItem(KEY)||'[]');if(!Array.isArray(state.jobs))state.jobs=[];}catch{state.jobs=[];}}
+function updateJob(job,patch){Object.assign(job,patch,{updatedAt:new Date().toISOString()});saveJobs();renderJobs();}
+function createJob(type,title,attrs={}) {
+  const job={id:crypto.randomUUID(),type,title,state:type==='convert'?'processing':'uploading',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),message:'Memulai...',...attrs};
+  state.jobs.unshift(job);state.jobs=state.jobs.slice(0,100);saveJobs();renderJobs();return job;
 }
-async function api(url,options={}) {
-  let res;
-  try { res=await fetch(url,{cache:'no-store',...options}); }
-  catch { throw new Error('Tidak dapat terhubung ke server. Coba muat ulang halaman.'); }
-  let data; try {data=await res.json();} catch {throw new Error(`Respons server tidak valid (HTTP ${res.status}).`);}
-  if(!res.ok) throw new Error(data.error || data.message || `HTTP ${res.status}`);
-  return data;
+function openDB(){return new Promise((resolve,reject)=>{if(!indexedDB)return reject(new Error('IndexedDB tidak tersedia.'));const r=indexedDB.open('mono-audio-cloudflare',1);r.onupgradeneeded=()=>r.result.createObjectStore('audio');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+let dbPromise;
+async function getDB(){if(!dbPromise)dbPromise=openDB();return dbPromise;}
+async function storeAudio(id,blob) {
+  cachedBlobs.set(id,blob);
+  try {const db=await getDB();await new Promise((resolve,reject)=>{const tx=db.transaction('audio','readwrite');tx.objectStore('audio').put(blob,id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});}
+  catch {toast('Hasil audio ada di tab ini, tetapi browser tidak bisa menyimpannya secara permanen.');}
 }
-function fillArt() {
-  const bars=$('art-bars');
-  for(let i=0;i<41;i++){
-    const el=document.createElement('i');
-    const h=15+Math.round(77*Math.abs(Math.sin(i*.32)*Math.cos(i*.17))+15*Math.abs(Math.sin(i*.97)));
-    el.style.height=`${h}px`;el.style.animationDelay=`${i*42}ms`;bars.appendChild(el);
-  }
-}
-function fileLabel(inputId,labelId,emptyLabel) {
-  const input=$(inputId),label=$(labelId);
-  label.textContent=input.files?.[0]?.name || emptyLabel;
-  if(inputId==='convert-file' && input.files?.length) $('source-url').value='';
-}
-function enableDropzone(zoneId,inputId, labelId,placeholder) {
-  const z=$(zoneId), input=$(inputId);
-  input.addEventListener('change',()=>fileLabel(inputId,labelId,placeholder));
-  for (const event of ['dragenter','dragover']) z.addEventListener(event,e=>{e.preventDefault();z.classList.add('dragover');});
-  for (const event of ['dragleave','drop']) z.addEventListener(event,e=>{e.preventDefault();z.classList.remove('dragover');});
-  z.addEventListener('drop',e=>{
-    if(!e.dataTransfer?.files?.length)return;
-    const transfer=new DataTransfer(); transfer.items.add(e.dataTransfer.files[0]);
-    input.files=transfer.files;
-    fileLabel(inputId,labelId,placeholder);
-    if(inputId==='upload-file') $('upload-source').value='file';
-  });
-}
-function setRange(id,output,fmt) {
-  const input=$(id); const update=()=>{ $(output).value=fmt(Number(input.value));};
-  input.addEventListener('input',update);update();
-}
-function selectedLatestConvert() {
-  return state.jobs.find(j => j.type==='convert' && j.state==='ready' && j.downloadable && allowedForUpload.has(j.format));
-}
-function renderSourceOptions() {
-  const s=$('upload-source'), previous=s.value;
-  s.replaceChildren();
-  const base=new Option('Upload file dari komputer','file');s.add(base);
-  for (const j of state.jobs.filter(j=>j.type==='convert'&&j.state==='ready'&&j.downloadable&&allowedForUpload.has(j.format)).slice(0,15)) {
-    s.add(new Option(`Converted · ${j.title.slice(0,37)} (${j.format.toUpperCase()})`, j.id));
-  }
-  s.value=Array.from(s.options).some(o=>o.value===previous)?previous:'file';
-  updateSourceVisual();
-}
-function updateSourceVisual(){
-  const fromJob=$('upload-source').value!=='file';
-  $('upload-file-zone').classList.toggle('hidden',fromJob);
-  $('upload-file-zone').style.display=fromJob?'none':'flex';
-}
-function result(containerId,job) {
-  const box=$(containerId);
-  if(!job) { box.classList.add('hidden');return; }
-  box.classList.remove('hidden');
-  let buttons='';
-  if(job.type==='convert' && job.downloadable && job.state==='ready') {
-    buttons=`<a class="small-button" href="/api/jobs/${encodeURIComponent(job.id)}/download">${svg('download')} Download audio</a><button type="button" class="small-button" data-use="${escapeHtml(job.id)}">${svg('upload')} Use for upload</button>`;
-  }
-  if(job.assetId) buttons += `<button type="button" class="small-button" data-copy="${escapeHtml(job.assetId)}">${svg('file')} Copy Asset ID</button>`;
-  if(job.type==='upload' && job.state==='pending') buttons += `<button class="small-button" type="button" data-refresh="${escapeHtml(job.id)}">${svg('refresh')} Check status</button>`;
-  box.innerHTML=`<div class="result-header">${svg(job.state==='error'||job.state==='rejected'?'circle':job.state==='approved'||job.state==='ready'?'check':'clock')} <span>${escapeHtml(labels[job.state]||job.state)} · ${escapeHtml(job.title)}</span></div><p>${escapeHtml(job.message||'')}</p>${job.assetId?`<p>Asset ID: <strong>${escapeHtml(job.assetId)}</strong></p>`:''}${buttons?`<div class="result-actions">${buttons}</div>`:''}`;
-}
-function renderJobs() {
-  const body=$('jobs-body');
-  if (!state.jobs.length) {
-    body.innerHTML=`<tr><td colspan="5"><div class="empty-state">${svg('headphones')}<strong>Belum ada aktivitas</strong><span>Hasil konversi dan upload akan muncul di sini.</span></div></td></tr>`;
-  } else {
-    body.innerHTML=state.jobs.map(j => {
-      let actions='';
-      if(j.downloadable&&j.state==='ready') actions+=`<a class="mini-action" href="/api/jobs/${encodeURIComponent(j.id)}/download" aria-label="Unduh audio" title="Download">${svg('download')}</a>`;
-      if(j.type==='convert' && j.downloadable && allowedForUpload.has(j.format)) actions+=`<button class="mini-action" data-use="${escapeHtml(j.id)}" title="Gunakan untuk upload" aria-label="Upload hasil konversi">${svg('upload')}</button>`;
-      if(j.assetId) actions+=`<button class="mini-action" data-copy="${escapeHtml(j.assetId)}" title="Salin Asset ID" aria-label="Salin Asset ID">${svg('file')}</button>`;
-      if(j.type==='upload' && j.state==='pending') actions+=`<button class="mini-action" data-refresh="${escapeHtml(j.id)}" title="Cek status sekarang" aria-label="Cek status">${svg('refresh')}</button>`;
-      return `<tr title="${escapeHtml(j.message)}"><td><strong class="asset-title">${escapeHtml(j.title)}</strong><span class="asset-subtitle">${j.assetId?'ID: '+escapeHtml(j.assetId):j.type==='convert'?escapeHtml((j.format||'').toUpperCase())+(j.size?' · '+numFmt(j.size):''):'Roblox Creator API'}</span></td><td><span class="type-tag">${j.type==='convert'?'Convert':'Upload'}</span></td><td>${escapeHtml(dateFmt(j.createdAt))}</td><td><span class="state ${escapeHtml(j.state)}">${escapeHtml(labels[j.state]||j.state)}</span></td><td><div class="action-group">${actions||'<span class="asset-subtitle">—</span>'}</div></td></tr>`;
-    }).join('');
-  }
-  renderSourceOptions();
-  result('convert-result',state.jobs.find(j=>j.id===state.convertingId));
-  result('upload-result',state.jobs.find(j=>j.id===state.uploadingId));
-}
-async function loadJobs({quiet=true}={}) {
-  try {
-    const data=await api('/api/jobs');
-    state.jobs=data.jobs||[];
-    renderJobs();
-    if(!quiet)toast('Status berhasil diperbarui.');
-  } catch(e) {if(!quiet)toast(e.message);}
-}
-async function loadConfig() {
-  try {
-    const c=await api('/api/config');state.config=c;
-    $('connection').classList.toggle('online',c.robloxConfigured);
-    $('connection').classList.toggle('offline',!c.robloxConfigured);
-    $('connection-label').textContent=c.robloxConfigured?'Roblox API Configured':'Roblox Not Configured';
-    $('api-note').classList.toggle('online',c.robloxConfigured);
-    $('api-note').classList.toggle('offline',!c.robloxConfigured);
-    $('api-note').querySelector('span:last-child').textContent=c.robloxConfigured?'Kredensial tersimpan. Akses diverifikasi Roblox saat upload pertama.':'API key belum disetel. Isi file .env untuk mengaktifkan upload.';
-    $('creator-owner').textContent=c.robloxConfigured?`${c.creatorType==='group'?'Group':'User'} #${c.creatorId}`:'Belum terhubung';
-    if(!c.tools.ffmpeg || !c.tools.ffprobe) toast('FFmpeg / FFprobe belum tersedia. Konversi audio membutuhkan keduanya.');
-    if(!c.tools['yt-dlp']) $('source-url').placeholder='Install yt-dlp untuk URL YouTube/SoundCloud';
-    $('upload-submit').disabled=!c.robloxConfigured;
-  } catch(e) {
-    $('connection-label').textContent='Server Offline';
-    $('connection').classList.add('offline');
-    $('api-note').querySelector('span:last-child').textContent='Server tidak terhubung.';
-    $('upload-submit').disabled=true;
-    toast(e.message);
-  }
-}
-function useForUpload(id) {
-  const job=state.jobs.find(j=>j.id===id);
-  if(!job||!job.downloadable||!allowedForUpload.has(job.format)) return toast('File hasil konversi tidak tersedia untuk upload.');
-  $('upload-source').value=id;
-  $('upload-name').value=job.title.slice(0,60);
-  updateSourceVisual();
-  $('upload').scrollIntoView({behavior:'smooth',block:'start'});
-  toast('Hasil konversi telah dipilih sebagai sumber upload.');
-}
-async function refreshOne(id) {
-  try { await api(`/api/jobs/${encodeURIComponent(id)}/refresh`,{method:'POST'}); await loadJobs(); }
-  catch(e){ toast(e.message); }
-}
-async function delegate(e) {
-  const use=e.target.closest('[data-use]');
-  if(use) {useForUpload(use.dataset.use);return;}
-  const refresh=e.target.closest('[data-refresh]');
-  if(refresh) { await refreshOne(refresh.dataset.refresh);return; }
-  const copy=e.target.closest('[data-copy]');
-  if(copy) {try {await navigator.clipboard.writeText(copy.dataset.copy);toast('Asset ID disalin.');}catch {toast(`Asset ID: ${copy.dataset.copy}`);} }
-}
-async function convert(e) {
-  e.preventDefault();
-  const btn=$('convert-submit');if(btn.disabled)return;
-  const file=$('convert-file').files[0],url=$('source-url').value.trim();
-  if(!file && !url) return toast('Masukkan URL atau pilih audio dari komputer.');
-  const fd=new FormData($('convert-form'));
-  if(file)fd.delete('url');else fd.delete('audio');
-  btn.disabled=true;btn.querySelector('span').textContent='Submitting...';
-  try {
-    const data=await api('/api/convert',{method:'POST',body:fd});
-    state.convertingId=data.job.id;
-    toast('Konversi dimulai. Hasil akan muncul otomatis.');
-    await loadJobs();
-  }catch(err){toast(err.message);}
-  finally{btn.disabled=false;btn.querySelector('span').textContent='Convert Audio';}
-}
-async function upload(e){
-  e.preventDefault();
-  const btn=$('upload-submit');if(btn.disabled)return;
-  const fd=new FormData($('upload-form'));
-  const selection=$('upload-source').value;
-  if(selection!=='file') {fd.set('jobId',selection);fd.delete('audio');}
-  else if(!$('upload-file').files?.[0]) return toast('Pilih file audio atau hasil konversi dahulu.');
-  btn.disabled=true;btn.querySelector('span').textContent='Submitting...';
-  try {
-    const data=await api('/api/upload',{method:'POST',body:fd});
-    state.uploadingId=data.job.id;
-    toast('Proses upload ke Roblox dimulai.');
-    await loadJobs();
-  }catch(err){toast(err.message);}
-  finally{btn.disabled=!state.config?.robloxConfigured;btn.querySelector('span').textContent='Upload to Roblox';}
-}
-$('source-url').addEventListener('input',()=>{
-  if($('source-url').value.trim() && $('convert-file').files.length) {
-    $('convert-file').value='';fileLabel('convert-file','convert-file-label','Klik atau tarik file audio ke sini');
-  }
-});
-fillArt();
-setRange('speed','speed-value',x=>x.toFixed(2)+'×');
-setRange('gain','gain-value',x=>`${x>0?'+':''}${x} dB`);
-enableDropzone('convert-dropzone','convert-file','convert-file-label','Klik atau tarik file audio ke sini');
-enableDropzone('upload-file-zone','upload-file','upload-file-label','Choose an audio file');
-$('upload-source').addEventListener('change',updateSourceVisual);
-$('convert-form').addEventListener('submit',convert);
-$('upload-form').addEventListener('submit',upload);
-$('refresh-jobs').addEventListener('click',()=>loadJobs({quiet:false}));
-document.addEventListener('click',delegate);
-void loadConfig();void loadJobs();
-setInterval(()=>void loadJobs(),12000);
+async function readAudio(id){if(cachedBlobs.has(id))return cachedBlobs.get(id);try{const db=await getDB();return await new Promise((resolve,reject)=>{const q=db.transaction('audio').objectStore('audio').get(id);q.onsuccess=()=>resolve(q.result||null);q.onerror=()=>reject(q.error);});}catch{return null;}}
+async function api(url,opts={}) {let r;try{r=await fetch(url,{cache:'no-store',...opts});}catch{throw new Error('Tidak dapat menghubungi Cloudflare. Periksa koneksi internet.');}let data;try{data=await r.json();}catch{throw new Error(`Respons API tidak valid (${r.status}).`);}if(r.status===401 && data.loginRequired){location.assign('/login.html');throw new Error('Silakan login kembali.');}if(!r.ok)throw new Error(data.error||data.message||`HTTP ${r.status}`);return data;}
+function fillArt(){for(let i=0;i<41;i++){const el=document.createElement('i');const h=15+Math.round(77*Math.abs(Math.sin(i*.32)*Math.cos(i*.17))+15*Math.abs(Math.sin(i*.97)));el.style.height=`${h}px`;el.style.animationDelay=`${i*42}ms`;$('art-bars').appendChild(el);}}
+function fileLabel(inputId,labelId,empty){$(labelId).textContent=$(inputId).files?.[0]?.name||empty;}
+function enableDropzone(zoneId,inputId,labelId,placeholder){const zone=$(zoneId),input=$(inputId);input.addEventListener('change',()=>fileLabel(inputId,labelId,placeholder));for(const ev of ['dragenter','dragover'])zone.addEventListener(ev,e=>{e.preventDefault();zone.classList.add('dragover');});for(const ev of ['dragleave','drop'])zone.addEventListener(ev,e=>{e.preventDefault();zone.classList.remove('dragover');});zone.addEventListener('drop',e=>{if(!e.dataTransfer?.files.length)return;const t=new DataTransfer();t.items.add(e.dataTransfer.files[0]);input.files=t.files;fileLabel(inputId,labelId,placeholder);if(inputId==='upload-file')$('upload-source').value='file';});}
+function setRange(id,out,fmt){const i=$(id),cb=()=>$(out).value=fmt(Number(i.value));i.addEventListener('input',cb);cb();}
+function options(){const select=$('upload-source'),prev=select.value;select.replaceChildren(new Option('Upload file dari komputer','file'));for(const j of state.jobs.filter(j=>j.type==='convert'&&j.state==='ready'&&j.downloadable&&allowedUpload.has(j.format)).slice(0,15)){select.add(new Option(`Converted · ${j.title.slice(0,37)} (${j.format.toUpperCase()})`,j.id));}select.value=[...select.options].some(o=>o.value===prev)?prev:'file';updateSourceVisual();}
+function updateSourceVisual(){const other=$('upload-source').value!=='file';$('upload-file-zone').style.display=other?'none':'flex';}
+function result(id,job){const el=$(id);if(!job){el.classList.add('hidden');return;}el.classList.remove('hidden');let actions='';if(job.type==='convert'&&job.downloadable&&job.state==='ready')actions=`<button class="small-button" data-download="${escapeHtml(job.id)}">${svg('download')} Download audio</button><button class="small-button" data-use="${escapeHtml(job.id)}">${svg('upload')} Use for upload</button>`;if(job.assetId)actions+=`<button class="small-button" data-copy="${escapeHtml(job.assetId)}">${svg('file')} Copy Asset ID</button>`;if(job.type==='upload'&&job.state==='pending')actions+=`<button class="small-button" data-refresh="${escapeHtml(job.id)}">${svg('refresh')} Check status</button>`;el.innerHTML=`<div class="result-header">${svg(['error','rejected'].includes(job.state)?'circle':['ready','approved'].includes(job.state)?'check':'clock')}<span>${escapeHtml(labels[job.state]||job.state)} · ${escapeHtml(job.title)}</span></div><p>${escapeHtml(job.message||'')}</p>${job.assetId?`<p>Asset ID: <strong>${escapeHtml(job.assetId)}</strong></p>`:''}${actions?`<div class="result-actions">${actions}</div>`:''}`;}
+function renderJobs(){const body=$('jobs-body');if(!state.jobs.length){body.innerHTML=`<tr><td colspan="5"><div class="empty-state">${svg('headphones')}<strong>Belum ada aktivitas</strong><span>Hasil konversi dan upload tersimpan pada browser ini.</span></div></td></tr>`;}else{body.innerHTML=state.jobs.map(j=>{let actions='';if(j.downloadable&&j.state==='ready')actions+=`<button class="mini-action" data-download="${escapeHtml(j.id)}" title="Download" aria-label="Download audio">${svg('download')}</button>`;if(j.type==='convert'&&j.downloadable&&allowedUpload.has(j.format))actions+=`<button class="mini-action" data-use="${escapeHtml(j.id)}" title="Use for upload" aria-label="Upload hasil konversi">${svg('upload')}</button>`;if(j.assetId)actions+=`<button class="mini-action" data-copy="${escapeHtml(j.assetId)}" title="Copy Asset ID" aria-label="Copy Asset ID">${svg('file')}</button>`;if(j.type==='upload'&&j.state==='pending')actions+=`<button class="mini-action" data-refresh="${escapeHtml(j.id)}" title="Refresh" aria-label="Refresh status">${svg('refresh')}</button>`;return `<tr title="${escapeHtml(j.message||'')}"><td><strong class="asset-title">${escapeHtml(j.title)}</strong><span class="asset-subtitle">${j.assetId?'ID: '+escapeHtml(j.assetId):j.type==='convert'?escapeHtml((j.format||'').toUpperCase())+(j.size?' · '+fmtSize(j.size):''):'Roblox Open Cloud'}</span></td><td><span class="type-tag">${j.type==='convert'?'Convert':'Upload'}</span></td><td>${escapeHtml(fmtDate(j.createdAt))}</td><td><span class="state ${escapeHtml(j.state)}">${escapeHtml(labels[j.state]||j.state)}</span></td><td><div class="action-group">${actions||'<span class="asset-subtitle">—</span>'}</div></td></tr>`;}).join('');}options();result('convert-result',state.jobs.find(j=>j.id===state.convertingId));result('upload-result',state.jobs.find(j=>j.id===state.uploadingId));}
+async function loadConfig(){try{const c=await api('/api/config');state.config=c;$('connection').classList.toggle('online',c.robloxConfigured);$('connection').classList.toggle('offline',!c.robloxConfigured);$('connection-label').textContent=c.robloxConfigured?'Roblox API Configured':'Browser Conversion Ready';$('api-note').classList.toggle('online',c.robloxConfigured);$('api-note').classList.toggle('offline',!c.robloxConfigured);$('api-note').querySelector('span:last-child').textContent=c.robloxConfigured?'Roblox API tersedia. Upload menggunakan backend Cloudflare yang terlindungi.':'Untuk upload, set APP_PASSWORD, ROBLOX_API_KEY dan ROBLOX_CREATOR_ID di Cloudflare Pages.';$('creator-owner').textContent=c.robloxConfigured?`${c.creatorType==='group'?'Group':'User'} #${c.creatorId}`:'Belum terhubung';$('upload-submit').disabled=!c.robloxConfigured;}catch(e){$('connection-label').textContent='Cloudflare API Unavailable';$('connection').classList.add('offline');$('upload-submit').disabled=true;toast(e.message);}}
+async function loadScript(src){await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=src;s.onload=resolve;s.onerror=()=>reject(new Error('Tidak bisa memuat ffmpeg.wasm dari website.'));document.head.appendChild(s);});}
+async function toObjectURL(url,type){const response=await fetch(url);if(!response.ok)throw new Error(`Gagal mengunduh mesin audio: HTTP ${response.status}`);return URL.createObjectURL(new Blob([await response.blob()],{type}));}
+async function loadFFmpeg(){if(state.ffmpeg)return state.ffmpeg;if(state.ffmpegPromise)return state.ffmpegPromise;state.ffmpegPromise=(async()=>{if(!window.FFmpegWASM)await loadScript('/vendor/ffmpeg/ffmpeg.js');const ffmpeg=new window.FFmpegWASM.FFmpeg();const base='https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd';const [coreURL,wasmURL]=await Promise.all([toObjectURL(`${base}/ffmpeg-core.js`,'text/javascript'),toObjectURL(`${base}/ffmpeg-core.wasm`,'application/wasm')]);try{await ffmpeg.load({coreURL,wasmURL});}finally{URL.revokeObjectURL(coreURL);URL.revokeObjectURL(wasmURL);}state.ffmpeg=ffmpeg;return ffmpeg;})();try{return await state.ffmpegPromise;}finally{state.ffmpegPromise=null;}}
+function niceFilename(s){return String(s||'audio').replace(/[<>:"/\\|?*\x00-\x1f]/g,'').trim().slice(0,75)||'audio';}
+async function convert(e){e.preventDefault();const input=$('convert-file').files?.[0];if(!input)return toast('Pilih file audio dari komputer. URL tidak didukung di Cloudflare.');if(!input.size||input.size>25*1024*1024)return toast('Untuk konversi browser, file maksimal 25 MB.');if(!$('convert-rights').checked)return toast('Konfirmasi hak penggunaan audio terlebih dahulu.');const ext=(input.name.split('.').pop()||'audio').toLowerCase();const format=$('format').value;const title=$('convert-name').value.trim()||input.name.replace(/\.[^.]+$/,'');const btn=$('convert-submit');if(btn.disabled)return;btn.disabled=true;btn.querySelector('span').textContent='Loading FFmpeg...';const job=createJob('convert',title,{format,message:'Memuat mesin audio browser (~32 MB saat pertama kali).'});state.convertingId=job.id;renderJobs();let ffmpeg,inFile,outFile;try{ffmpeg=await loadFFmpeg();btn.querySelector('span').textContent='Converting...';updateJob(job,{message:'Mengolah audio di browser. Proses pertama mungkin lebih lambat.'});inFile=`i_${job.id.replaceAll('-','')}.${ext}`;outFile=`o_${job.id.replaceAll('-','')}.${format}`;await ffmpeg.writeFile(inFile,new Uint8Array(await input.arrayBuffer()));const speed=Number($('speed').value),gain=Number($('gain').value);const codec={mp3:['-c:a','libmp3lame','-b:a','192k'],ogg:['-c:a','libvorbis','-q:a','5'],wav:['-c:a','pcm_s16le']}[format];if(!codec)throw new Error('Format tidak didukung.');const args=['-hide_banner','-y','-i',inFile,'-vn','-filter:a',`atempo=${speed.toFixed(2)},volume=${gain}dB`,'-ar','44100','-ac','2',...codec,outFile];const code=await ffmpeg.exec(args,240000);if(code!==0)throw new Error(`FFmpeg gagal memproses file (kode ${code}).`);const content=await ffmpeg.readFile(outFile);if(!content?.byteLength)throw new Error('FFmpeg tidak menghasilkan audio.');const mime={mp3:'audio/mpeg',ogg:'audio/ogg',wav:'audio/wav'}[format];const blob=new Blob([content],{type:mime});await storeAudio(job.id,blob);updateJob(job,{state:'ready',message:'Audio siap diunduh atau di-upload ke Roblox.',size:blob.size,downloadable:true,filename:`${niceFilename(title)}.${format}`});toast('Konversi selesai. File tersimpan di browser.');}catch(error){updateJob(job,{state:'error',message:error.message||'Konversi gagal.'});toast(error.message);}finally{if(ffmpeg){if(inFile)await ffmpeg.deleteFile(inFile).catch(()=>{});if(outFile)await ffmpeg.deleteFile(outFile).catch(()=>{});}btn.disabled=false;btn.querySelector('span').textContent='Convert Audio';}}
+async function downloadJob(id){const job=state.jobs.find(j=>j.id===id);const blob=await readAudio(id);if(!job||!blob)return toast('File tidak ditemukan. File browser mungkin telah dibersihkan.');const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=job.filename||`${niceFilename(job.title)}.${job.format||'wav'}`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);}
+function useForUpload(id){const job=state.jobs.find(j=>j.id===id);if(!job||job.state!=='ready'||!allowedUpload.has(job.format))return toast('Hasil konversi tidak tersedia untuk upload.');$('upload-source').value=id;$('upload-name').value=job.title.slice(0,60);updateSourceVisual();$('upload').scrollIntoView({behavior:'smooth',block:'start'});toast('Hasil konversi dipilih sebagai sumber upload.');}
+async function audioDuration(blob){return new Promise(resolve=>{const tag=document.createElement('audio');const url=URL.createObjectURL(blob);const finish=()=>{const n=tag.duration;URL.revokeObjectURL(url);resolve(Number.isFinite(n)?n:null);};tag.preload='metadata';tag.onloadedmetadata=finish;tag.onerror=()=>{URL.revokeObjectURL(url);resolve(null);};tag.src=url;setTimeout(()=>{if(tag.src)finish();},10000);});}
+async function upload(e){e.preventDefault();const btn=$('upload-submit');if(btn.disabled)return;const selection=$('upload-source').value;let file,format='';if(selection!=='file'){const job=state.jobs.find(j=>j.id===selection);const blob=await readAudio(selection);if(!blob||!job)return toast('File hasil konversi tidak ditemukan.');format=job.format;file=new File([blob],`audio.${format}`,{type:blob.type});}else{file=$('upload-file').files?.[0];format=(file?.name?.split('.').pop()||'').toLowerCase();}if(!file)return toast('Pilih file audio untuk upload.');if(!allowedUpload.has(format))return toast('Roblox hanya menerima MP3, OGG, WAV untuk workflow ini.');if(file.size>=20*1048576)return toast('Audio harus berukuran kurang dari 20 MB.');if(!$('upload-rights').checked)return toast('Konfirmasi hak penggunaan audio terlebih dahulu.');const dur=await audioDuration(file);if(dur!=null&&dur>420)return toast('Durasi melebihi 7 menit. Konversi ke audio lebih pendek dahulu.');const title=$('upload-name').value.trim();if(!title)return toast('Masukkan nama asset Roblox.');const job=createJob('upload',title,{message:'Mengirim audio ke Roblox...' });state.uploadingId=job.id;renderJobs();const fd=new FormData();fd.append('audio',file,file.name);fd.append('title',title);fd.append('description',$('upload-description').value.trim());fd.append('rights','true');btn.disabled=true;btn.querySelector('span').textContent='Uploading...';try{const res=await api('/api/upload',{method:'POST',body:fd});updateJob(job,{state:'pending',operation:res.operation||null,assetId:res.assetId||null,message:'File diterima Roblox; menunggu operasi dan moderasi.'});toast('Upload diterima Roblox. Status akan diperiksa berkala.');await refreshOne(job.id);}catch(error){updateJob(job,{state:'error',message:error.message});toast(error.message);}finally{btn.disabled=!state.config?.robloxConfigured;btn.querySelector('span').textContent='Upload to Roblox';}}
+async function refreshOne(id){const j=state.jobs.find(x=>x.id===id);if(!j||j.type!=='upload'||j.state!=='pending')return;try{const params=new URLSearchParams();if(j.assetId)params.set('assetId',j.assetId);else if(j.operation)params.set('operation',j.operation);else return;const response=await api(`/api/status?${params}`);updateJob(j,{state:response.state||'pending',assetId:response.assetId||j.assetId,operation:response.operation||j.operation,message:response.message||'Menunggu moderasi Roblox.'});}catch(e){updateJob(j,{message:`Pengecekan status sementara gagal: ${e.message}`});}}
+async function refreshAll(manual=false){for(const j of state.jobs.filter(j=>j.type==='upload'&&j.state==='pending').slice(0,8))await refreshOne(j.id);if(manual)toast('Status sudah diperiksa.');}
+async function delegate(e){const button=e.target.closest('[data-download],[data-use],[data-refresh],[data-copy]');if(!button)return;if(button.dataset.download)return downloadJob(button.dataset.download);if(button.dataset.use)return useForUpload(button.dataset.use);if(button.dataset.refresh)return refreshOne(button.dataset.refresh);if(button.dataset.copy){try{await navigator.clipboard.writeText(button.dataset.copy);toast('Asset ID disalin.');}catch{toast(`Asset ID: ${button.dataset.copy}`);}}}
+function init(){fillArt();hydrateJobs();renderJobs();setRange('speed','speed-value',v=>v.toFixed(2)+'×');setRange('gain','gain-value',v=>`${v>0?'+':''}${v} dB`);enableDropzone('convert-dropzone','convert-file','convert-file-label','Klik atau tarik file audio ke sini');enableDropzone('upload-file-zone','upload-file','upload-file-label','Choose an audio file');$('upload-source').addEventListener('change',updateSourceVisual);$('convert-form').addEventListener('submit',convert);$('upload-form').addEventListener('submit',upload);$('refresh-jobs').addEventListener('click',()=>refreshAll(true));document.addEventListener('click',delegate);void loadConfig();void refreshAll();setInterval(()=>void refreshAll(),45000);}
+init();
