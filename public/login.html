@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#08090c">
+  <title>Sign in · MONO Audio Studio</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/login.css">
+  <script defer src="/login.js"></script>
+</head>
+<body>
+  <main class="card">
+    <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h2l3-6 4 12 3-8 2 2h4"/></svg></div>
+    <p class="eyebrow">PRIVATE WORKSPACE</p>
+    <h1>Welcome to <span>MONO.</span></h1>
+    <p class="description">Masuk untuk mengakses audio converter, upload Roblox, dan status moderasi.</p>
+    <form id="login-form">
+      <label for="password">Access password</label>
+      <div class="field"><input id="password" name="password" type="password" placeholder="Enter your password" required minlength="12" autocomplete="current-password"><button class="eye" id="toggle" type="button" aria-label="Tampilkan password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+      <p id="error" aria-live="polite" class="error"></p>
+      <button type="submit" class="submit"><span>Sign in</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+    </form>
+    <div class="footer"><span class="dot"></span> Secure access <span class="sep">/</span> Mono Audio Studio</div>
+  </main>
+</body>
+</html>
