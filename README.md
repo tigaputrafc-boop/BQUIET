@@ -25,6 +25,12 @@ Setelah mengisi variabel, **redeploy** project. Jangan pernah memasukkan API key
 
 Jika variabel belum diisi, converter lokal masih bisa digunakan secara publik tetapi upload Roblox nonaktif. Setelah APP_PASSWORD diisi, website menggunakan login pribadi dan cookie ditandatangani untuk melindungi area utama dan API.
 
+## Pengaturan audio dan equalizer
+
+Audio Converter menyediakan **Bass (110 Hz), Mid (850 Hz), Presence (3.2 kHz), Treble (5.5 kHz)**, serta **Echo (0–40%)**. Terdapat preset **Flat, Bass Boost, Warm, Vocal, Bright**, tombol reset, dan penyimpanan pilihan terakhir di browser. Pengaturan benar-benar diproses menggunakan filter audio FFmpeg saat konversi, bukan sekadar kontrol visual. Pengaturan Speed, Gain dan Output Format tetap tersedia.
+
+Tips: kenaikan bass atau gain terlalu tinggi bisa menyebabkan clipping. Gunakan Amplification yang lebih rendah bila hasil audio terdengar pecah.
+
 ## Fitur dan batasan
 
 - **Convert:** file lokal MP3/OGG/WAV/FLAC/M4A (maks. **25 MB**); output MP3/OGG/WAV, speed 0,75–1,5×, gain -6 hingga +12 dB. Semua konversi menggunakan `@ffmpeg/ffmpeg` di **browser pengguna**. Unduhan WebAssembly pertama kali sekitar 30 MB; konversi di ponsel bisa lambat dan memakai memori besar.

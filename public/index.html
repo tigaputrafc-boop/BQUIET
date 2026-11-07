@@ -22,6 +22,8 @@
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5m10.6-2A8 8 0 0 0 5 7l-1 2m.4 5A8 8 0 0 0 19 17l1-2"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 5-5m-5 5-5-5M4 17v3h16v-3"/></symbol>
     <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9m5 0h2M4 17h2m5 0h9M13 4v6M8 14v6"/></symbol>
+    <symbol id="i-equalizer" viewBox="0 0 24 24"><path d="M4 4v16M10 4v16M16 4v16M22 4v16M2 9h4M8 15h4M14 8h4M20 13h4"/></symbol>
+    <symbol id="i-reset" viewBox="0 0 24 24"><path d="M3 11a9 9 0 1 1 2 6M3 5v6h6"/></symbol>
     <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></symbol>
     <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6-9 9m7 1v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
     <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
@@ -49,7 +51,7 @@
         <div class="hero-art" aria-hidden="true"><div class="art-label">AUDIO / SIGNAL</div><div class="orb orb-1"></div><div class="orb orb-2"></div><div class="art-bars" id="art-bars"></div><div class="art-caption">MONO · DIGITAL SOUND</div></div>
       </section>
       <section class="features" aria-label="Fitur utama">
-        <a href="#convert" class="feature-card"><div class="feature-top"><span class="feature-icon"><svg><use href="#i-spark"/></svg></span><span class="card-index">01 / 03</span></div><h2>Auto Convert</h2><p>Konversi file audio lokal langsung di browser. Atur kecepatan, gain, dan format.</p><span class="feature-bottom">Explore feature <svg><use href="#i-arrow"/></svg></span></a>
+        <a href="#convert" class="feature-card"><div class="feature-top"><span class="feature-icon"><svg><use href="#i-spark"/></svg></span><span class="card-index">01 / 03</span></div><h2>Auto Convert</h2><p>Konversi file lokal dengan kontrol Bass, Mid, Treble, preset EQ, kecepatan, dan format.</p><span class="feature-bottom">Explore feature <svg><use href="#i-arrow"/></svg></span></a>
         <a href="#upload" class="feature-card"><div class="feature-top"><span class="feature-icon"><svg><use href="#i-upload"/></svg></span><span class="card-index">02 / 03</span></div><h2>Direct Upload</h2><p>Kirim audio langsung ke Roblox Creator melalui Open Cloud API dengan kredensial milik Anda.</p><span class="feature-bottom">Explore feature <svg><use href="#i-arrow"/></svg></span></a>
         <a href="#activity" class="feature-card"><div class="feature-top"><span class="feature-icon"><svg><use href="#i-chart"/></svg></span><span class="card-index">03 / 03</span></div><h2>Track Status</h2><p>Pantau setiap proses, Asset ID, dan hasil moderasi Roblox: pending, approved, atau rejected.</p><span class="feature-bottom">Explore feature <svg><use href="#i-arrow"/></svg></span></a>
       </section>
@@ -63,6 +65,19 @@
             <div class="field"><label for="convert-name">Nama audio <span class="optional">(opsional)</span></label><input id="convert-name" name="title" maxlength="80" placeholder="My Audio Track"/></div>
             <div class="sliders"><div class="range-top"><label for="speed">Playback speed</label><output id="speed-value">1.00×</output></div><input type="range" id="speed" name="speed" min="0.75" max="1.5" step="0.05" value="1"/><div class="range-ends"><span>0.75×</span><span>1.50×</span></div>
               <div class="range-top second-range"><label for="gain">Amplification</label><output id="gain-value">0 dB</output></div><input type="range" id="gain" name="gain" min="-6" max="12" step="1" value="0"/><div class="range-ends"><span>−6 dB</span><span>+12 dB</span></div></div>
+            <section class="eq-panel" aria-labelledby="eq-title">
+              <div class="eq-heading"><div class="eq-heading-icon"><svg><use href="#i-equalizer"/></svg></div><div class="eq-heading-copy"><span class="eq-caption">SOUND SHAPING / 04 BANDS</span><h4 id="eq-title">Audio Equalizer</h4></div><button type="button" class="eq-reset" id="eq-reset" aria-label="Reset equalizer ke pengaturan default"><svg><use href="#i-reset"/></svg> Reset</button></div>
+              <p class="eq-description">Bentuk karakter suara sesuai kebutuhan. Pengaturan diterapkan saat audio dikonversi.</p>
+              <div class="eq-presets" role="group" aria-label="Preset equalizer"><button type="button" class="eq-preset active" data-eq-preset="flat" aria-pressed="true">Flat</button><button type="button" class="eq-preset" data-eq-preset="bass" aria-pressed="false">Bass Boost</button><button type="button" class="eq-preset" data-eq-preset="warm" aria-pressed="false">Warm</button><button type="button" class="eq-preset" data-eq-preset="vocal" aria-pressed="false">Vocal</button><button type="button" class="eq-preset" data-eq-preset="bright" aria-pressed="false">Bright</button></div>
+              <div class="eq-grid">
+                <div class="eq-control"><div class="range-top"><label for="eq-bass">Bass <small>110 Hz</small></label><output for="eq-bass" id="eq-bass-value">0 dB</output></div><input id="eq-bass" type="range" min="-12" max="12" step="1" value="0"/><div class="range-ends"><span>−12</span><span>+12 dB</span></div></div>
+                <div class="eq-control"><div class="range-top"><label for="eq-mid">Mid <small>850 Hz</small></label><output for="eq-mid" id="eq-mid-value">0 dB</output></div><input id="eq-mid" type="range" min="-12" max="12" step="1" value="0"/><div class="range-ends"><span>−12</span><span>+12 dB</span></div></div>
+                <div class="eq-control"><div class="range-top"><label for="eq-presence">Presence <small>3.2 kHz</small></label><output for="eq-presence" id="eq-presence-value">0 dB</output></div><input id="eq-presence" type="range" min="-9" max="9" step="1" value="0"/><div class="range-ends"><span>−9</span><span>+9 dB</span></div></div>
+                <div class="eq-control"><div class="range-top"><label for="eq-treble">Treble <small>5.5 kHz</small></label><output for="eq-treble" id="eq-treble-value">0 dB</output></div><input id="eq-treble" type="range" min="-12" max="12" step="1" value="0"/><div class="range-ends"><span>−12</span><span>+12 dB</span></div></div>
+              </div>
+              <div class="eq-echo"><div class="range-top"><label for="eq-echo">Echo <small>Room effect</small></label><output for="eq-echo" id="eq-echo-value">0%</output></div><input id="eq-echo" type="range" min="0" max="40" step="5" value="0"/><div class="range-ends"><span>Off</span><span>40%</span></div></div>
+              <p class="eq-hint">Untuk bass yang kuat tanpa distorsi, kurangi Amplification bila output terdengar pecah.</p>
+            </section>
             <div class="field"><label for="format">Output format</label><div class="select-wrap"><select id="format" name="format"><option value="mp3">MP3 — Recommended</option><option value="ogg">OGG — Compressed</option><option value="wav">WAV — Uncompressed</option></select><span class="select-caret"></span></div></div>
             <label class="check"><input type="checkbox" id="convert-rights" name="rights" value="true" required/><span>Saya memiliki izin atau hak untuk menggunakan audio ini.</span></label>
             <button class="btn btn-primary" id="convert-submit" type="submit"><span>Convert Audio</span><svg><use href="#i-arrow"/></svg></button>
